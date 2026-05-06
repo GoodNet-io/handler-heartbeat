@@ -5,7 +5,7 @@
 
 #include <gtest/gtest.h>
 
-#include <plugins/handlers/heartbeat/heartbeat.hpp>
+#include <heartbeat.hpp>
 
 #include <sdk/extensions/heartbeat.h>
 #include <sdk/host_api.h>
