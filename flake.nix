@@ -7,7 +7,7 @@
   description = "GoodNet handler plugin: heartbeat — standalone plugin flake.";
 
   inputs = {
-    goodnet.url     = "path:../../..";
+    goodnet.url     = "git+file:../../..?dir=nix/kernel-only";
     nixpkgs.follows = "goodnet/nixpkgs";
   };
 
