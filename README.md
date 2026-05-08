@@ -30,12 +30,12 @@ cmake --build build
 
 The kernel's `PluginManager` opens the `.so` from a manifest entry
 that pins its SHA-256 digest. See `docs/install.md` and
-`docs/contracts/plugin-manifest.md` in the kernel tree for the
+`docs/contracts/plugin-manifest.en.md` in the kernel tree for the
 deployment shape.
 
 ## Contract
 
 - Wire format + extension API: [`docs/extension-api.md`](docs/extension-api.md)
 - Kernel-side handler-registration contract:
-  `docs/contracts/handler-registration.md`
+  `docs/contracts/handler-registration.en.md`
 - Reserved msg_id `0x10`: `core/kernel/system_handler_ids.hpp`
