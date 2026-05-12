@@ -73,7 +73,7 @@ parse_payload(std::span<const std::uint8_t> src) noexcept {
 
 HeartbeatHandler::HeartbeatHandler(const host_api_t* api,
                                      ClockNowUs clock)
-    : api_(api), now_us_(std::move(clock))
+    : api_(api), now_us_(std::move(clock)), peers_(api)
 {
     vtable_.api_size           = sizeof(gn_handler_vtable_t);
     vtable_.protocol_id        = &HeartbeatHandler::vtable_protocol_id;
@@ -89,84 +89,30 @@ HeartbeatHandler::HeartbeatHandler(const host_api_t* api,
     ext_vtable_.get_observed_address  = &HeartbeatHandler::ext_get_observed_address;
     ext_vtable_.ctx                   = this;
 
-    /// Subscribe to conn-state events so a DISCONNECTED notification
-    /// can drop the matching `PeerState` from `peers_`. Without this,
-    /// peers accumulate forever and the registered ext slots
-    /// (`get_rtt`, etc.) keep hitting stale entries past the
-    /// connection's actual lifetime.
-    if (api_ != nullptr && api_->subscribe_conn_state != nullptr) {
-        gn_subscription_id_t token = GN_INVALID_SUBSCRIPTION_ID;
-        const auto rc = api_->subscribe_conn_state(
-            api_->host_ctx,
-            &HeartbeatHandler::on_conn_event,
-            this,
-            /*ud_destroy*/ nullptr,
-            &token);
-        if (rc == GN_OK) {
-            conn_state_sub_ = token;
-        }
-    }
+    /// PerConnMap owns its own conn-state subscription internally
+    /// (see `sdk/cpp/per_conn_map.hpp`). `peers_(api)` in the
+    /// initializer list both binds the subscription and wires the
+    /// DISCONNECTED auto-erase semantic — no manual `subscribe`
+    /// / `unsubscribe` boilerplate needed.
 }
 
 HeartbeatHandler::~HeartbeatHandler() {
-    /// Tear the subscription down before clearing peers — the
-    /// kernel guarantees `unsubscribe` waits for any in-flight
-    /// callback to settle, so by the time `reset_state` runs no
-    /// stray `on_conn_event` can race with the map clear.
-    if (conn_state_sub_ != GN_INVALID_SUBSCRIPTION_ID &&
-        api_ != nullptr && api_->unsubscribe != nullptr) {
-        (void)api_->unsubscribe(api_->host_ctx, conn_state_sub_);
-        conn_state_sub_ = GN_INVALID_SUBSCRIPTION_ID;
-    }
+    /// `peers_` (gn::sdk::PerConnMap) auto-unsubscribes in its own
+    /// dtor; nothing for the handler to clean up explicitly.
     reset_state();
 }
 
-void HeartbeatHandler::on_conn_event(void* user_data,
-                                      const gn_conn_event_t* ev) {
-    auto* self = static_cast<HeartbeatHandler*>(user_data);
-    if (self == nullptr || ev == nullptr) return;
-    /// Only DISCONNECTED is interesting — every other event
-    /// (CONNECTED, BACKPRESSURE_*, TRUST_UPGRADED) is consumed by
-    /// other handlers; the heartbeat's `peers_` is created lazily
-    /// on the first PING and torn down here on the matching
-    /// disconnect.
-    if (ev->kind != GN_CONN_EVENT_DISCONNECTED) return;
-    std::unique_lock lock(self->peers_mu_);
-    self->peers_.erase(ev->conn);
-}
-
 void HeartbeatHandler::reset_state() noexcept {
-    std::unique_lock lock(peers_mu_);
     peers_.clear();
 }
 
 std::size_t HeartbeatHandler::peer_count() const noexcept {
-    std::shared_lock lock(peers_mu_);
     return peers_.size();
-}
-
-std::shared_ptr<HeartbeatHandler::PeerState>
-HeartbeatHandler::ensure_peer(gn_conn_id_t conn) {
-    {
-        std::shared_lock lock(peers_mu_);
-        if (auto it = peers_.find(conn); it != peers_.end()) return it->second;
-    }
-    std::unique_lock lock(peers_mu_);
-    auto& slot = peers_[conn];
-    if (!slot) slot = std::make_shared<PeerState>();
-    return slot;
-}
-
-std::shared_ptr<HeartbeatHandler::PeerState>
-HeartbeatHandler::find_peer(gn_conn_id_t conn) const {
-    std::shared_lock lock(peers_mu_);
-    auto it = peers_.find(conn);
-    return (it == peers_.end()) ? nullptr : it->second;
 }
 
 gn_result_t HeartbeatHandler::send_ping(gn_conn_id_t conn) {
     if (!api_ || !api_->send) return GN_ERR_NOT_IMPLEMENTED;
-    auto peer = ensure_peer(conn);
+    auto peer = peers_.ensure(conn);
 
     HeartbeatPayload hb{};
     /// `timestamp_us` on the wire stays for compatibility with
@@ -212,7 +158,7 @@ gn_propagation_t HeartbeatHandler::handle_message(const gn_message_t* env) {
     const gn_conn_id_t conn = env->conn_id;
     if (conn == GN_INVALID_ID) return GN_PROPAGATION_CONTINUE;
 
-    auto peer = ensure_peer(conn);
+    auto peer = peers_.ensure(conn);
 
     if (hb.flags == kFlagPing) {
         /// Reflect the requester's endpoint back so they learn how we
@@ -292,21 +238,21 @@ void HeartbeatHandler::snapshot_stats(gn_heartbeat_stats_t* out) const {
     out->min_rtt_us = 0;
     out->max_rtt_us = 0;
 
-    std::shared_lock lock(peers_mu_);
     std::uint64_t sum = 0;
     std::uint32_t mn = std::numeric_limits<std::uint32_t>::max();
     std::uint32_t mx = 0;
     std::uint32_t count = 0;
 
-    for (const auto& [_, peer] : peers_) {
+    peers_.for_each([&](gn_conn_id_t /*conn*/,
+                         const std::shared_ptr<PeerState>& peer) {
         const std::uint32_t rtt = static_cast<std::uint32_t>(
             peer->last_rtt_us.load(std::memory_order_acquire));
-        if (rtt == 0) continue;
+        if (rtt == 0) return;
         sum += rtt;
         if (rtt < mn) mn = rtt;
         if (rtt > mx) mx = rtt;
         ++count;
-    }
+    });
 
     out->peer_count = count;
     out->avg_rtt_us = (count > 0) ? static_cast<std::uint32_t>(sum / count) : 0;
@@ -317,7 +263,7 @@ void HeartbeatHandler::snapshot_stats(gn_heartbeat_stats_t* out) const {
 int HeartbeatHandler::get_rtt(gn_conn_id_t conn,
                                 std::uint64_t* out_rtt_us) const {
     if (!out_rtt_us) return -1;
-    auto peer = find_peer(conn);
+    auto peer = peers_.find(conn);
     if (!peer) return -1;
     const std::uint64_t rtt = peer->last_rtt_us.load(std::memory_order_acquire);
     if (rtt == 0) return -1;
@@ -330,7 +276,7 @@ int HeartbeatHandler::get_observed_address(gn_conn_id_t conn,
                                              std::size_t buf_size,
                                              std::uint16_t* out_port) const {
     if (!out_buf || buf_size == 0) return -1;
-    auto peer = find_peer(conn);
+    auto peer = peers_.find(conn);
     if (!peer) return -1;
 
     std::lock_guard plk(peer->mu);

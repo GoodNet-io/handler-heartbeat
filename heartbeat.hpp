@@ -17,11 +17,11 @@
 #include <memory>
 #include <mutex>
 #include <optional>
-#include <shared_mutex>
 #include <span>
 #include <string>
 #include <unordered_map>
 
+#include <sdk/cpp/per_conn_map.hpp>
 #include <sdk/cpp/wire.hpp>
 #include <sdk/extensions/heartbeat.h>
 #include <sdk/handler.h>
@@ -197,9 +197,6 @@ private:
         std::unordered_map<std::uint32_t, std::uint64_t> outstanding_pings;
     };
 
-    [[nodiscard]] std::shared_ptr<PeerState> ensure_peer(gn_conn_id_t conn);
-    [[nodiscard]] std::shared_ptr<PeerState> find_peer(gn_conn_id_t conn) const;
-
     /// Build the static vtable wired into `vtable_`.
     static const char* vtable_protocol_id(void* self);
     static void        vtable_supported_msg_ids(void* self,
@@ -217,25 +214,18 @@ private:
                                          std::size_t buf_size,
                                          std::uint16_t* out_port);
 
-    /// Static thunk for the conn-state subscription. The kernel
-    /// fires it for every CONNECTED / DISCONNECTED / TRUST_*
-    /// event; the handler erases its `PeerState` on
-    /// DISCONNECTED so peers do not accumulate forever.
-    static void on_conn_event(void* user_data, const gn_conn_event_t* ev);
-
     const host_api_t*                                     api_;
     ClockNowUs                                            now_us_;
     gn_handler_vtable_t                                   vtable_{};
     gn_heartbeat_api_t                                    ext_vtable_{};
 
-    mutable std::shared_mutex                             peers_mu_;
-    std::unordered_map<gn_conn_id_t, std::shared_ptr<PeerState>> peers_;
-
-    /// Subscription token for the conn-state channel. Kept so
-    /// the dtor can unsubscribe before tearing down `peers_`.
-    /// `GN_INVALID_SUBSCRIPTION_ID` until the host_api is bound
-    /// or when `subscribe_conn_state` is unavailable.
-    gn_subscription_id_t conn_state_sub_ = GN_INVALID_SUBSCRIPTION_ID;
+    /// Per-connection peer state with auto-cleanup on DISCONNECTED.
+    /// Replaces the hand-rolled `unordered_map + shared_mutex +
+    /// subscribe_conn_state + on_conn_event` boilerplate per
+    /// `sdk/cpp/per_conn_map.hpp`. The DSL helper owns its own
+    /// subscription internally; HeartbeatHandler no longer has to
+    /// declare a token field or wire an unsubscribe in the dtor.
+    gn::sdk::PerConnMap<PeerState>                        peers_;
 };
 
 } // namespace gn::handler::heartbeat
