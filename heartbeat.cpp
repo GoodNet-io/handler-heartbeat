@@ -3,6 +3,7 @@
 
 #include <core/util/endian.hpp>
 
+#include <sdk/convenience.h>
 #include <sdk/cpp/uri.hpp>
 
 #include <chrono>
@@ -111,7 +112,12 @@ std::size_t HeartbeatHandler::peer_count() const noexcept {
 }
 
 gn_result_t HeartbeatHandler::send_ping(gn_conn_id_t conn) {
-    if (!api_ || !api_->send) return GN_ERR_NOT_IMPLEMENTED;
+    if (!api_ || !api_->send) {
+        gn_log_warn(api_, "heartbeat: send_ping conn=%llu host_api "
+                          "missing send slot — kernel not bound?",
+                    static_cast<unsigned long long>(conn));
+        return GN_ERR_NOT_IMPLEMENTED;
+    }
     auto peer = peers_.ensure(conn);
 
     HeartbeatPayload hb{};
@@ -131,8 +137,16 @@ gn_result_t HeartbeatHandler::send_ping(gn_conn_id_t conn) {
     }
 
     const auto wire = serialize_payload(hb);
-    return api_->send(api_->host_ctx, conn, kHeartbeatMsgId,
-                      wire.data(), wire.size());
+    const auto rc = api_->send(api_->host_ctx, conn, kHeartbeatMsgId,
+                                wire.data(), wire.size());
+    if (rc != GN_OK) {
+        gn_log_warn(api_, "heartbeat: send_ping conn=%llu host_api->send "
+                          "failed rc=%d (peer disconnected or "
+                          "queue-bounded)",
+                    static_cast<unsigned long long>(conn),
+                    static_cast<int>(rc));
+    }
+    return rc;
 }
 
 gn_propagation_t HeartbeatHandler::handle_message(const gn_message_t* env) {

@@ -132,10 +132,39 @@ public:
     HeartbeatHandler(const HeartbeatHandler&)            = delete;
     HeartbeatHandler& operator=(const HeartbeatHandler&) = delete;
 
+    /// Static metadata required by `GN_HANDLER_PLUGIN` macro.
+    /// Each entry mirrors the runtime constants the hand-rolled
+    /// plugin_entry.cpp passed to `register_vtable` before the macro
+    /// migration on 2026-05-12. Keeping them static + constexpr lets
+    /// the macro fold them into `gn_register_meta_t` without a
+    /// per-instance lookup.
+    static constexpr const char*       protocol_id() noexcept {
+        return kProtocolId;
+    }
+    static constexpr std::uint32_t     msg_id() noexcept {
+        return kHeartbeatMsgId;
+    }
+    static constexpr std::uint8_t      priority() noexcept {
+        return 240;  // system handler — high priority
+    }
+    static constexpr const char*       extension_name() noexcept {
+        return GN_EXT_HEARTBEAT;
+    }
+    static constexpr std::uint32_t     extension_version() noexcept {
+        return GN_EXT_HEARTBEAT_VERSION;
+    }
+
     /// Process an inbound heartbeat envelope. PING is reflected back
     /// as PONG with the requester's observed endpoint; PONG records
     /// RTT and the peer's reported observation of our own endpoint.
     [[nodiscard]] gn_propagation_t handle_message(const gn_message_t* env);
+
+    /// Reference-taking overload for the `GN_HANDLER_PLUGIN` macro's
+    /// SFINAE dispatch (`handle_message_dispatch` calls
+    /// `h.handle_message(*env)`). Delegates to the pointer overload.
+    [[nodiscard]] gn_propagation_t handle_message(const gn_message_t& env) {
+        return handle_message(&env);
+    }
 
     /// Send a PING to @p conn. Used by an application plugin's
     /// periodic driver and by tests; the handler does not own a timer.
@@ -172,8 +201,13 @@ public:
     }
 
     /// Build the extension vtable. Same lifetime as the handler.
-    [[nodiscard]] const gn_heartbeat_api_t& extension_vtable() const noexcept {
-        return ext_vtable_;
+    /// Returns a pointer (rather than a reference) so the
+    /// `GN_HANDLER_PLUGIN` macro can pass it directly to
+    /// `register_extension(..., const void*)` without `&` adornment;
+    /// the macro's `has_extension_v` SFINAE probe requires
+    /// `std::convertible_to<const void*>` on this return type.
+    [[nodiscard]] const gn_heartbeat_api_t* extension_vtable() const noexcept {
+        return &ext_vtable_;
     }
 
 private:

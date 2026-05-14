@@ -7,6 +7,7 @@
 
 #include <heartbeat.hpp>
 
+#include <sdk/cpp/test/stub_host.hpp>
 #include <sdk/extensions/heartbeat.h>
 #include <sdk/host_api.h>
 #include <sdk/types.h>
@@ -23,76 +24,13 @@ namespace {
 
 using namespace gn::handler::heartbeat;
 
-/// Captures `host_api->send` calls and provides scripted responses
-/// for `find_conn_by_pk` / `get_endpoint`.
-struct StubHost {
-    std::atomic<int>                     send_calls{0};
-    std::vector<std::vector<std::uint8_t>> sent_payloads;
-    std::vector<gn_conn_id_t>            sent_conns;
-    std::vector<std::uint32_t>           sent_msg_ids;
-    std::mutex                           mu;
-
-    /// pk[0] byte → (conn_id, uri). Tests prime via `add_peer`.
-    struct PeerEntry {
-        gn_conn_id_t conn;
-        std::string  uri;
-    };
-    std::unordered_map<std::uint8_t, PeerEntry> peer_map;
-
-    void add_peer(std::uint8_t marker, gn_conn_id_t conn, std::string uri) {
-        peer_map[marker] = {conn, std::move(uri)};
-    }
-
-    static gn_result_t on_send(void* host_ctx, gn_conn_id_t conn,
-                                std::uint32_t msg_id,
-                                const std::uint8_t* payload, std::size_t size) {
-        auto* h = static_cast<StubHost*>(host_ctx);
-        std::lock_guard lk(h->mu);
-        h->sent_payloads.emplace_back(payload, payload + size);
-        h->sent_conns.push_back(conn);
-        h->sent_msg_ids.push_back(msg_id);
-        h->send_calls.fetch_add(1);
-        return GN_OK;
-    }
-
-    static gn_result_t on_find_conn(void* host_ctx,
-                                     const std::uint8_t pk[GN_PUBLIC_KEY_BYTES],
-                                     gn_conn_id_t* out_conn) {
-        auto* h = static_cast<StubHost*>(host_ctx);
-        std::lock_guard lk(h->mu);
-        auto it = h->peer_map.find(pk[0]);
-        if (it == h->peer_map.end()) return GN_ERR_NOT_FOUND;
-        *out_conn = it->second.conn;
-        return GN_OK;
-    }
-
-    static gn_result_t on_get_endpoint(void* host_ctx, gn_conn_id_t conn,
-                                        gn_endpoint_t* out) {
-        auto* h = static_cast<StubHost*>(host_ctx);
-        std::lock_guard lk(h->mu);
-        for (auto& [m, p] : h->peer_map) {
-            if (p.conn == conn) {
-                std::memset(out, 0, sizeof(*out));
-                out->conn_id = conn;
-                const std::size_t n = std::min(p.uri.size(),
-                                                static_cast<std::size_t>(GN_ENDPOINT_URI_MAX - 1));
-                std::memcpy(out->uri, p.uri.data(), n);
-                out->uri[n] = '\0';
-                return GN_OK;
-            }
-        }
-        return GN_ERR_NOT_FOUND;
-    }
-};
-
-host_api_t make_stub_api(StubHost& h) {
-    host_api_t api{};
-    api.api_size         = sizeof(host_api_t);
-    api.host_ctx         = &h;
-    api.send             = &StubHost::on_send;
-    api.find_conn_by_pk  = &StubHost::on_find_conn;
-    api.get_endpoint     = &StubHost::on_get_endpoint;
-    return api;
+/// Migrated 2026-05-12 from the local 60-LOC `StubHost` copy to
+/// the shared `gn::sdk::test::HandlerStub`. Same surface: captures
+/// `send` calls, scripts `find_conn_by_pk` / `get_endpoint` via
+/// `add_peer(marker, conn, uri)`.
+using StubHost = ::gn::sdk::test::HandlerStub;
+inline host_api_t make_stub_api(StubHost& h) noexcept {
+    return ::gn::sdk::test::make_handler_host_api(h);
 }
 
 /// Mock clock with explicit `set` / `advance`. The handler accepts
@@ -415,18 +353,19 @@ TEST(Heartbeat, ExtensionVtablePopulatedAndFunctional) {
     auto env = make_envelope(0xAA, pong, /*conn*/ 1);
     ASSERT_EQ(hh.handle_message(&env->msg), GN_PROPAGATION_CONSUMED);
 
-    const auto& ext = hh.extension_vtable();
-    ASSERT_NE(ext.get_rtt, nullptr);
-    ASSERT_NE(ext.get_stats, nullptr);
-    ASSERT_NE(ext.get_observed_address, nullptr);
-    EXPECT_EQ(ext.ctx, &hh);
+    const auto* ext = hh.extension_vtable();
+    ASSERT_NE(ext, nullptr);
+    ASSERT_NE(ext->get_rtt, nullptr);
+    ASSERT_NE(ext->get_stats, nullptr);
+    ASSERT_NE(ext->get_observed_address, nullptr);
+    EXPECT_EQ(ext->ctx, &hh);
 
     std::uint64_t rtt = 0;
-    EXPECT_EQ(ext.get_rtt(ext.ctx, /*conn*/ 1, &rtt), 0);
+    EXPECT_EQ(ext->get_rtt(ext->ctx, /*conn*/ 1, &rtt), 0);
     EXPECT_EQ(rtt, 500u);
 
     gn_heartbeat_stats_t stats{};
-    EXPECT_EQ(ext.get_stats(ext.ctx, &stats), 0);
+    EXPECT_EQ(ext->get_stats(ext->ctx, &stats), 0);
     EXPECT_EQ(stats.peer_count, 1u);
     EXPECT_EQ(stats.avg_rtt_us, 500u);
     EXPECT_EQ(stats.min_rtt_us, 500u);
