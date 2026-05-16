@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "heartbeat.hpp"
 
-#include <core/util/endian.hpp>
+#include <sdk/cpp/endian.hpp>
 
 #include <sdk/convenience.h>
 #include <sdk/cpp/uri.hpp>
@@ -41,14 +41,14 @@ void copy_observed(char dst[kObservedAddrBytes], std::string_view src) noexcept 
 std::array<std::uint8_t, kPayloadSize>
 serialize_payload(const HeartbeatPayload& hb) noexcept {
     std::array<std::uint8_t, kPayloadSize> out{};
-    ::gn::util::write_be<std::uint64_t>(
+    ::gn::endian::write_be<std::uint64_t>(
         std::span<std::uint8_t>(out.data() + 0, 8), hb.timestamp_us);
-    ::gn::util::write_be<std::uint32_t>(
+    ::gn::endian::write_be<std::uint32_t>(
         std::span<std::uint8_t>(out.data() + 8, 4), hb.seq);
     out[12] = hb.flags;
     /// out[13..15] padded with the array's value-init zeros.
     std::memcpy(out.data() + 16, hb.observed_addr, kObservedAddrBytes);
-    ::gn::util::write_be<std::uint16_t>(
+    ::gn::endian::write_be<std::uint16_t>(
         std::span<std::uint8_t>(out.data() + 80, 2), hb.observed_port);
     /// out[82..87] zero.
     return out;
@@ -59,16 +59,16 @@ parse_payload(std::span<const std::uint8_t> src) noexcept {
     if (src.size() != kPayloadSize) return std::nullopt;
     HeartbeatPayload out;
     out.timestamp_us =
-        ::gn::util::read_be<std::uint64_t>(src.subspan(0, 8));
+        ::gn::endian::read_be<std::uint64_t>(src.subspan(0, 8));
     out.seq          =
-        ::gn::util::read_be<std::uint32_t>(src.subspan(8, 4));
+        ::gn::endian::read_be<std::uint32_t>(src.subspan(8, 4));
     out.flags        = src[12];
     std::memcpy(out.observed_addr, src.data() + 16, kObservedAddrBytes);
     /// Defence-in-depth: never trust a peer-supplied string is
     /// NUL-terminated.
     out.observed_addr[kObservedAddrBytes - 1] = '\0';
     out.observed_port =
-        ::gn::util::read_be<std::uint16_t>(src.subspan(80, 2));
+        ::gn::endian::read_be<std::uint16_t>(src.subspan(80, 2));
     return out;
 }
 
