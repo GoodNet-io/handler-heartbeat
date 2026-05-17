@@ -132,12 +132,9 @@ public:
     HeartbeatHandler(const HeartbeatHandler&)            = delete;
     HeartbeatHandler& operator=(const HeartbeatHandler&) = delete;
 
-    /// Static metadata required by `GN_HANDLER_PLUGIN` macro.
-    /// Each entry mirrors the runtime constants the hand-rolled
-    /// plugin_entry.cpp passed to `register_vtable` before the macro
-    /// migration on 2026-05-12. Keeping them static + constexpr lets
-    /// the macro fold them into `gn_register_meta_t` without a
-    /// per-instance lookup.
+    /// Static metadata read by the `GN_HANDLER_PLUGIN` macro.
+    /// Keeping them `static constexpr` lets the macro fold them
+    /// into `gn_register_meta_t` without a per-instance lookup.
     static constexpr const char*       protocol_id() noexcept {
         return kProtocolId;
     }

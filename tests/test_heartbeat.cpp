@@ -24,8 +24,7 @@ namespace {
 
 using namespace gn::handler::heartbeat;
 
-/// Migrated 2026-05-12 from the local 60-LOC `StubHost` copy to
-/// the shared `gn::sdk::test::HandlerStub`. Same surface: captures
+/// Alias to the shared `gn::sdk::test::HandlerStub`: captures
 /// `send` calls, scripts `find_conn_by_pk` / `get_endpoint` via
 /// `add_peer(marker, conn, uri)`.
 using StubHost = ::gn::sdk::test::HandlerStub;
