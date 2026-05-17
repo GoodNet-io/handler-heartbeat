@@ -113,6 +113,14 @@ Returns 0 on success, `-1` when the connection is unknown or no
 PONG has yet been observed. The value is the most recent
 observation; the handler does not smooth or filter it.
 
+Note that the handler also forwards every matched PONG sample
+to the kernel via `host_api->notify_rtt_sample(conn, rtt)`.
+The kernel folds the observation into a per-conn EWMA(α = 1/8)
+per RFC 6298 and republishes it to every registered strategy
+through `on_path_event(GN_PATH_EVENT_RTT_UPDATE)`. The raw
+last-sample remains the diagnostic surface this slot returns;
+strategies consume the smoothed kernel-side value.
+
 ### 3.3 `get_observed_address`
 
 Latest external-address observation reported by `conn`. `buf` is
