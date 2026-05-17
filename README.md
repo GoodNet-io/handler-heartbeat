@@ -4,7 +4,12 @@ Two-way liveness check between connected peers. Emits PING on
 demand, replies with PONG echoing the requester's timestamp plus
 the responder's view of the requester's external endpoint, exposes
 per-connection RTT and observed-address samples through the
-`gn.heartbeat` extension API.
+`gn.heartbeat` extension API. Every matched PONG-driven sample
+also forwards to the kernel via `host_api->notify_rtt_sample`
+so strategies see the observation through their
+`on_path_event(GN_PATH_EVENT_RTT_UPDATE)` channel — the
+strategy chain ranks conns by latency without each strategy
+maintaining its own probe.
 
 **Kind**: handler · **Artefact**: dynamic plugin (`.so` via dlopen)
 · **License**: GPL-2.0 with Linking Exception (see `LICENSE`)
