@@ -165,6 +165,20 @@ TEST(Heartbeat, PongRecordsRttAndObservation) {
     ASSERT_EQ(hh.get_observed_address(11, buf, sizeof(buf), &port), 0);
     EXPECT_STREQ(buf, "203.0.113.5");
     EXPECT_EQ(port, 9000);
+
+    /// Every matched PONG sample also republishes to the kernel
+    /// via host_api->notify_rtt_sample. The HandlerStub captures
+    /// every call; assert the (conn, rtt_us) tuple matches the
+    /// local observation. The kernel would fold this into a
+    /// per-conn EWMA and republish to strategies — the handler
+    /// itself does not smooth, so the sample equals the
+    /// directly-recorded value.
+    {
+        std::lock_guard lk(host.mu);
+        ASSERT_EQ(host.rtt_samples.size(), 1u);
+        EXPECT_EQ(host.rtt_samples[0].first, 11u);
+        EXPECT_EQ(host.rtt_samples[0].second, 500'000u);
+    }
 }
 
 TEST(Heartbeat, RttIsDeterministicUnderInjectedClock) {
