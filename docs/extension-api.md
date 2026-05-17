@@ -4,7 +4,7 @@
 **Owner:** `plugins/handlers/heartbeat/`
 **SDK header:** `sdk/extensions/heartbeat.h`
 **Stability:** stable for v1.x; future minor versions append vtable
-slots through size-prefix evolution per `docs/contracts/abi-evolution.md`.
+slots through size-prefix evolution per `docs/contracts/abi-evolution.en.md`.
 
 ---
 
@@ -80,7 +80,7 @@ typedef struct gn_heartbeat_api_s {
 ```
 
 Begins with `api_size` for size-prefix evolution per
-`docs/contracts/abi-evolution.md` §3. The kernel stores extension vtables as
+`docs/contracts/abi-evolution.en.md` §3. The kernel stores extension vtables as
 opaque `const void*`, so the consumer (a plugin querying via
 `host_api->query_extension_checked`) runs the size guard before
 invoking any slot added after `MINOR` 0 — the `GN_API_HAS(api,
@@ -131,12 +131,12 @@ The handler depends on four `host_api` slots:
 
 | Slot | Use |
 |---|---|
-| `subscribe_conn_state` / `unsubscribe` | watch DISCONNECTED events to drop `peers_[conn]` and outstanding pings — see `docs/contracts/handler-registration.md` §3a |
+| `subscribe_conn_state` / `unsubscribe` | watch DISCONNECTED events to drop `peers_[conn]` and outstanding pings — see `docs/contracts/handler-registration.en.md` §3a |
 | `get_endpoint` | look up the URI of `conn` to fill `observed_addr` / `observed_port` on PONG |
 | `send` | emit PING / PONG payloads through the active protocol layer |
 
 The handler reads the inbound-edge connection straight from
-`gn_message_t::conn_id` per `docs/contracts/handler-registration.md` §3a;
+`gn_message_t::conn_id` per `docs/contracts/handler-registration.en.md` §3a;
 `find_conn_by_pk` would be wrong on relay paths where `sender_pk`
 identifies the originating peer but the receiving connection
 belongs to the relay.
@@ -166,6 +166,6 @@ peer's RTT.
 
 ## 6. Cross-references
 
-- Wire envelope shape: `docs/contracts/protocol-layer.md` §3.
-- Extension query semantics: `docs/contracts/host-api.md` §2 (`query_extension_checked`).
-- Clock injection rules: `docs/contracts/clock.md` §2.
+- Wire envelope shape: `docs/contracts/protocol-layer.en.md` §3.
+- Extension query semantics: `docs/contracts/host-api.en.md` §2 (`query_extension_checked`).
+- Clock injection rules: `docs/contracts/clock.en.md` §2.

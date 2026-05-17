@@ -126,10 +126,10 @@ TEST(Heartbeat, PongRecordsRttAndObservation) {
     HeartbeatHandler hh(&api, clock.as_callable());
 
     /// Send a PING at t=1.5s so the matching PONG can be matched by
-    /// `seq` to the locally-stored `sent_at_us`. Per the Wave 7.1
-    /// contract: RTT comes from the local timestamp, NOT the
-    /// peer-echoed `timestamp_us` — a hostile peer that altered the
-    /// echo would otherwise pollute the recorded RTT.
+    /// `seq` to the locally-stored `sent_at_us`. RTT comes from the
+    /// local timestamp, NOT the peer-echoed `timestamp_us` — a
+    /// hostile peer that altered the echo would otherwise pollute
+    /// the recorded RTT.
     clock.set(1'500'000);
     ASSERT_EQ(hh.send_ping(/*conn*/ 11), GN_OK);
     /// `send_ping` allocates seq starting at 0; capture the seq the
@@ -178,8 +178,8 @@ TEST(Heartbeat, RttIsDeterministicUnderInjectedClock) {
     /// Three round-trips with different intervals — each PING is
     /// stamped at t=0 (local), the matching PONG arrives at
     /// t=interval, and the recorded RTT equals the interval. The
-    /// PONG's `timestamp_us` is left at zero (peer-echoed value
-    /// is ignored — Wave 7.1 contract).
+    /// PONG's `timestamp_us` is left at zero — the peer-echoed
+    /// value is ignored by design.
     std::uint32_t seq = 0;
     for (std::uint64_t interval : {std::uint64_t{1'000},
                                      std::uint64_t{100'000},
@@ -340,10 +340,9 @@ TEST(Heartbeat, ExtensionVtablePopulatedAndFunctional) {
     HeartbeatHandler hh(&api, clock.as_callable());
 
     /// PING at t=1'500, PONG at t=2'000 → recorded RTT = 500us.
-    /// Wave 7.1 contract: RTT comes from local memory, so a
-    /// hostile peer's `timestamp_us` is ignored — set the
-    /// PING manually via `send_ping` so `outstanding_pings` has
-    /// a matching seq.
+    /// RTT comes from local memory, so a hostile peer's
+    /// `timestamp_us` is ignored — set the PING manually via
+    /// `send_ping` so `outstanding_pings` has a matching seq.
     clock.set(1'500);
     ASSERT_EQ(hh.send_ping(/*conn*/ 1), GN_OK);
     clock.set(2'000);

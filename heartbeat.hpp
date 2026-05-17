@@ -111,7 +111,7 @@ static_assert(::gn::wire::WireSchema<HeartbeatSchema>,
 
 /// Time source for RTT computation. Production binds to
 /// `steady_clock`; tests inject a deterministic mock per
-/// `clock.md` §2.
+/// `clock.en.md` §2.
 using ClockNowUs = std::function<std::uint64_t()>;
 
 /// Default `ClockNowUs` reading microseconds from `steady_clock`.
