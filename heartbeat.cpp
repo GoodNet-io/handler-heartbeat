@@ -231,6 +231,16 @@ gn_propagation_t HeartbeatHandler::handle_message(const gn_message_t* env) {
         peer->last_rtt_us.store(rtt, std::memory_order_release);
         peer->missed.store(0, std::memory_order_release);
 
+        /// Republish the sample to the kernel so strategies see the
+        /// observation through their `on_path_event(RTT_UPDATE)`
+        /// channel. The kernel folds the sample into a smoothed
+        /// per-conn EWMA; the heartbeat keeps the raw last-sample
+        /// for its own diagnostics.
+        if (rtt > 0 && api_ != nullptr &&
+            api_->notify_rtt_sample != nullptr) {
+            (void)api_->notify_rtt_sample(api_->host_ctx, conn, rtt);
+        }
+
         /// Latest peer-reported view of our address; `parse_payload`
         /// already enforced the trailing NUL.
         if (hb.observed_addr[0] != '\0' && hb.observed_port != 0) {
