@@ -83,8 +83,9 @@ Begins with `api_size` for size-prefix evolution per
 `docs/contracts/abi-evolution.en.md` §3. The kernel stores extension vtables as
 opaque `const void*`, so the consumer (a plugin querying via
 `host_api->query_extension_checked`) runs the size guard before
-invoking any slot added after `MINOR` 0 — the `GN_API_HAS(api,
-field)` macro from `sdk/abi.h` is the canonical check. `ctx` is
+invoking any slot added after `MINOR` 0 — the
+`GN_API_HAS(api_type, api, field)` macro from `sdk/abi.h` is the
+canonical check (`api_type = gn_heartbeat_api_t` here). `ctx` is
 the handler's `self` pointer; every entry takes it as the first
 argument.
 
